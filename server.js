@@ -8,35 +8,18 @@ app.use(cors());
 app.use(bodyParser.json());
 
 /*
-=====================================
-⚡ IN-MEMORY DATABASE (V1)
-=====================================
-Later upgrade → MongoDB/Postgres
+=========================
+⚡ PULSE BACKEND v2
+=========================
+- auth (signup/login)
+- posts + feed
+- follow system
+- profile system
+- topics ready (onboarding support)
 */
 
 const users = {};
 const posts = [];
-
-/*
-USER MODEL:
-{
-  username,
-  password,
-  pin,
-  followers: [],
-  following: [],
-  topics: []
-}
-
-POST MODEL:
-{
-  id,
-  user,
-  text,
-  recharge: [],
-  createdAt
-}
-*/
 
 //////////////////////////////////////////////////////
 // 👤 SIGNUP
@@ -58,10 +41,10 @@ app.post("/signup", (req, res) => {
     pin,
     followers: [],
     following: [],
-    topics: []
+    topics: [] // for onboarding later
   };
 
-  return res.json({ ok: true });
+  res.json({ ok: true });
 });
 
 //////////////////////////////////////////////////////
@@ -76,10 +59,22 @@ app.post("/login", (req, res) => {
   if (user.password !== password) return res.json({ ok: false });
   if (user.pin !== pin) return res.json({ ok: false });
 
-  return res.json({
-    ok: true,
-    user
-  });
+  res.json({ ok: true, user });
+});
+
+//////////////////////////////////////////////////////
+// 🧠 SAVE TOPICS (READY FOR ONBOARDING)
+//////////////////////////////////////////////////////
+app.post("/topics", (req, res) => {
+  const { username, topics } = req.body;
+
+  if (!users[username]) {
+    return res.json({ ok: false });
+  }
+
+  users[username].topics = topics;
+
+  res.json({ ok: true });
 });
 
 //////////////////////////////////////////////////////
@@ -88,58 +83,37 @@ app.post("/login", (req, res) => {
 app.post("/post", (req, res) => {
   const { username, text } = req.body;
 
-  if (!users[username]) {
-    return res.json({ ok: false });
-  }
+  if (!users[username]) return res.json({ ok: false });
 
-  const post = {
+  posts.unshift({
     id: Date.now(),
     user: username,
     text,
-    recharge: [],
     createdAt: Date.now()
-  };
-
-  posts.unshift(post);
+  });
 
   res.json({ ok: true });
 });
 
 //////////////////////////////////////////////////////
-// ⚡ RECHARGE (LIKE SYSTEM)
-//////////////////////////////////////////////////////
-app.post("/recharge", (req, res) => {
-  const { postId, user } = req.body;
-
-  const post = posts.find(p => p.id === postId);
-
-  if (!post) return res.json({ ok: false });
-
-  if (!post.recharge.includes(user)) {
-    post.recharge.push(user);
-  }
-
-  res.json({ ok: true });
-});
-
-//////////////////////////////////////////////////////
-// 🏠 HOME FEED (FOLLOW BASED)
+// 🏠 FEED
 //////////////////////////////////////////////////////
 app.get("/feed/:username", (req, res) => {
   const user = users[req.params.username];
 
   if (!user) return res.json([]);
 
-  const feed = posts.filter(p =>
-    p.user === user.username ||
-    user.following.includes(p.user)
+  const feed = posts.filter(
+    p =>
+      p.user === user.username ||
+      user.following.includes(p.user)
   );
 
   res.json(feed);
 });
 
 //////////////////////////////////////////////////////
-// 🤝 FOLLOW USER
+// 🤝 FOLLOW
 //////////////////////////////////////////////////////
 app.post("/follow", (req, res) => {
   const { from, to } = req.body;
@@ -148,9 +122,7 @@ app.post("/follow", (req, res) => {
     return res.json({ ok: false });
   }
 
-  if (from === to) {
-    return res.json({ ok: false, msg: "Cannot follow self" });
-  }
+  if (from === to) return res.json({ ok: false });
 
   if (!users[from].following.includes(to)) {
     users[from].following.push(to);
@@ -164,7 +136,7 @@ app.post("/follow", (req, res) => {
 });
 
 //////////////////////////////////////////////////////
-// ❌ UNFOLLOW USER
+// ❌ UNFOLLOW
 //////////////////////////////////////////////////////
 app.post("/unfollow", (req, res) => {
   const { from, to } = req.body;
@@ -190,21 +162,24 @@ app.get("/profile/:username", (req, res) => {
 
   if (!user) return res.json(null);
 
-  const userPosts = posts.filter(p => p.user === user.username);
+  const userPosts = posts.filter(
+    p => p.user === user.username
+  );
 
   res.json({
     username: user.username,
     followers: user.followers.length,
     following: user.following.length,
+    topics: user.topics,
     posts: userPosts
   });
 });
 
 //////////////////////////////////////////////////////
-// ⚡ SERVER START
+// ⚡ START SERVER
 //////////////////////////////////////////////////////
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-  console.log("⚡ PULSE BACKEND V1 RUNNING ON PORT", PORT);
+  console.log("⚡ Pulse backend running on port", PORT);
 });
