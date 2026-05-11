@@ -1,21 +1,46 @@
 const express = require("express");
 const cors = require("cors");
+const bodyParser = require("body-parser");
 
 const app = express();
 
 app.use(cors());
-app.use(express.json());
+app.use(bodyParser.json());
 
-// health check route
-app.get("/", (req, res) => {
-  res.send("PULSE backend is running ⚡");
-});
+/*
+=====================================
+⚡ IN-MEMORY DATABASE (V1)
+=====================================
+Later upgrade → MongoDB/Postgres
+*/
 
-// simple in-memory storage (temporary for now)
-let users = [];
-let posts = [];
+const users = {};
+const posts = [];
 
-/* SIGNUP */
+/*
+USER MODEL:
+{
+  username,
+  password,
+  pin,
+  followers: [],
+  following: [],
+  topics: []
+}
+
+POST MODEL:
+{
+  id,
+  user,
+  text,
+  recharge: [],
+  createdAt
+}
+*/
+
+//////////////////////////////////////////////////////
+// 👤 SIGNUP
+//////////////////////////////////////////////////////
 app.post("/signup", (req, res) => {
   const { username, password, pin } = req.body;
 
@@ -23,84 +48,66 @@ app.post("/signup", (req, res) => {
     return res.json({ ok: false, msg: "Missing fields" });
   }
 
-  const exists = users.find(u => u.username === username);
-  if (exists) {
-    return res.json({ ok: false, msg: "Username taken" });
+  if (users[username]) {
+    return res.json({ ok: false, msg: "User already exists" });
   }
 
-  const user = {
+  users[username] = {
     username,
     password,
     pin,
     followers: [],
-    following: []
+    following: [],
+    topics: []
   };
 
-  users.push(user);
-
-  res.json({ ok: true, user });
+  return res.json({ ok: true });
 });
 
-/* LOGIN */
+//////////////////////////////////////////////////////
+// 🔐 LOGIN
+//////////////////////////////////////////////////////
 app.post("/login", (req, res) => {
   const { username, password, pin } = req.body;
 
-  const user = users.find(u => u.username === username);
+  const user = users[username];
 
   if (!user) return res.json({ ok: false });
+  if (user.password !== password) return res.json({ ok: false });
+  if (user.pin !== pin) return res.json({ ok: false });
 
-  if (user.password === password || user.pin === pin) {
-    return res.json({ ok: true, user });
-  }
-
-  res.json({ ok: false });
+  return res.json({
+    ok: true,
+    user
+  });
 });
 
-/* CREATE POST */
+//////////////////////////////////////////////////////
+// 📝 CREATE POST
+//////////////////////////////////////////////////////
 app.post("/post", (req, res) => {
   const { username, text } = req.body;
+
+  if (!users[username]) {
+    return res.json({ ok: false });
+  }
 
   const post = {
     id: Date.now(),
     user: username,
     text,
-    recharge: []
+    recharge: [],
+    createdAt: Date.now()
   };
 
-  posts.push(post);
-
-  res.json({ ok: true, post });
-});
-
-/* FEED */
-app.get("/feed/:username", (req, res) => {
-  const user = users.find(u => u.username === req.params.username);
-
-  if (!user) return res.json([]);
-
-  const feed = posts.filter(
-    p => p.user === user.username || user.following.includes(p.user)
-  );
-
-  res.json(feed.reverse());
-});
-
-/* FOLLOW (LOCK IN SYSTEM) */
-app.post("/follow", (req, res) => {
-  const { me, target } = req.body;
-
-  const a = users.find(u => u.username === me);
-  const b = users.find(u => u.username === target);
-
-  if (!a || !b) return res.json({ ok: false });
-
-  if (!a.following.includes(target)) a.following.push(target);
-  if (!b.followers.includes(me)) b.followers.push(me);
+  posts.unshift(post);
 
   res.json({ ok: true });
 });
 
-/* RECHARGE (REPOST FEATURE) */
+//////////////////////////////////////////////////////
+// ⚡ RECHARGE (LIKE SYSTEM)
+//////////////////////////////////////////////////////
 app.post("/recharge", (req, res) => {
   const { postId, user } = req.body;
 
@@ -112,12 +119,92 @@ app.post("/recharge", (req, res) => {
     post.recharge.push(user);
   }
 
-  res.json({ ok: true, post });
+  res.json({ ok: true });
 });
 
-// IMPORTANT FOR RENDER
+//////////////////////////////////////////////////////
+// 🏠 HOME FEED (FOLLOW BASED)
+//////////////////////////////////////////////////////
+app.get("/feed/:username", (req, res) => {
+  const user = users[req.params.username];
+
+  if (!user) return res.json([]);
+
+  const feed = posts.filter(p =>
+    p.user === user.username ||
+    user.following.includes(p.user)
+  );
+
+  res.json(feed);
+});
+
+//////////////////////////////////////////////////////
+// 🤝 FOLLOW USER
+//////////////////////////////////////////////////////
+app.post("/follow", (req, res) => {
+  const { from, to } = req.body;
+
+  if (!users[from] || !users[to]) {
+    return res.json({ ok: false });
+  }
+
+  if (from === to) {
+    return res.json({ ok: false, msg: "Cannot follow self" });
+  }
+
+  if (!users[from].following.includes(to)) {
+    users[from].following.push(to);
+  }
+
+  if (!users[to].followers.includes(from)) {
+    users[to].followers.push(from);
+  }
+
+  res.json({ ok: true });
+});
+
+//////////////////////////////////////////////////////
+// ❌ UNFOLLOW USER
+//////////////////////////////////////////////////////
+app.post("/unfollow", (req, res) => {
+  const { from, to } = req.body;
+
+  if (!users[from] || !users[to]) {
+    return res.json({ ok: false });
+  }
+
+  users[from].following =
+    users[from].following.filter(u => u !== to);
+
+  users[to].followers =
+    users[to].followers.filter(u => u !== from);
+
+  res.json({ ok: true });
+});
+
+//////////////////////////////////////////////////////
+// 👤 PROFILE
+//////////////////////////////////////////////////////
+app.get("/profile/:username", (req, res) => {
+  const user = users[req.params.username];
+
+  if (!user) return res.json(null);
+
+  const userPosts = posts.filter(p => p.user === user.username);
+
+  res.json({
+    username: user.username,
+    followers: user.followers.length,
+    following: user.following.length,
+    posts: userPosts
+  });
+});
+
+//////////////////////////////////////////////////////
+// ⚡ SERVER START
+//////////////////////////////////////////////////////
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-  console.log("PULSE backend running on port", PORT);
+  console.log("⚡ PULSE BACKEND V1 RUNNING ON PORT", PORT);
 });
